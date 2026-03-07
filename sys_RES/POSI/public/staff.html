@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Staff Order Dashboard</title>
+<link rel="stylesheet" href="staff-styles.css" />
+</head>
+<body>
+
+<h1>Staff Order Dashboard</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Order ID</th>
+      <th>Name</th>
+      <th>Location</th>
+      <th>Table</th>
+      <th>Items</th>
+      <th>Status</th>
+      <th>Elapsed (min)</th>
+      <th>Action</th> <!-- NEW COLUMN -->
+    </tr>
+  </thead>
+  <tbody id="ordersBody">
+    <tr><td colspan="8" style="text-align:center;">Loading orders...</td></tr>
+  </tbody>
+</table>
+
+<script src="staff.js"></script>
+</body>
+</html>

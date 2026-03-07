@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Coffee Shop Order</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="header">
+  <h1>☕ Coffee Shop Order</h1>
+</header>
+
+<main class="container">
+  <!-- Order Form Section -->
+  <section id="form-section" class="card">
+    <h2>Place Your Order</h2>
+
+    <div class="form-group">
+      <label for="name">Your Name</label>
+      <input id="name" type="text" placeholder="Enter your name" />
+    </div>
+
+    <!-- Past Orders Below Name -->
+    <div id="past-orders-form" class="past-orders" style="margin-bottom:20px;">
+      <p>Enter your name to see your past orders.</p>
+    </div>
+
+    <div class="form-group">
+      <label for="location">Location</label>
+      <select id="location">
+        <option value="">Select location</option>
+        <option value="Inside">Inside</option>
+        <option value="Outside">Outside</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="table">Table Number</label>
+      <input id="table" type="number" min="1" placeholder="Table number" />
+    </div>
+
+    <h3>Menu</h3>
+    <div id="menu" class="menu-grid"></div>
+
+    <h3>Your Order</h3>
+    <div id="order" class="order-list"></div>
+
+    <button id="submitBtn" class="btn-primary">Place Order</button>
+  </section>
+
+  <!-- Status Section -->
+  <section id="status-section" class="card" style="display:none;">
+    <h2>Current Order Status</h2>
+    <div id="order-status" class="status-box"></div>
+    
+    <button id="viewAllOrdersBtn" class="btn-secondary">View All My Orders</button>
+    
+    <h3>Your Past Orders</h3>
+    <div id="past-orders" class="past-orders">
+      <p>Enter your name above to see your past orders.</p>
+    </div>
+    
+    <button id="newOrderBtn" class="btn-primary">Make Another Order</button>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>&copy; 2025 Coffee Shop. All rights reserved to Qioro.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
