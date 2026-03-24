@@ -1,40 +1,60 @@
 [
   {
-    "category": "Coffee",
+    "category": "Breakfast",
     "items": [
-      { "id": 1, "name": "Espresso", "price": 2.1, "image": "images/coffee/espresso.jpg" },
-      { "id": 2, "name": "Cappuccino", "price": 2.4, "image": "images/coffee/cappuccino.jpg" },
-      { "id": 3, "name": "Americano", "price": 2.1, "image": "images/coffee/americano.jpg" },
-      { "id": 4, "name": "Latte", "price": 2.6, "image": "images/coffee/latte.jpg" }
+      { "id": 1, "name": "Breakfast Mini", "price": 6.5, "image": "images/breakfast/mini.jpg", "description": "Coffee, croissant or cake, orange jus." },
+      { "id": 2, "name": "Breakfast Medium", "price": 7.5, "image": "images/breakfast/medium.jpg", "description": "Coffee, croissant or cake, orange or strawberry jus, 0.5L water." },
+      { "id": 3, "name": "Breakfast Maximum", "price": 9, "image": "images/breakfast/maximum.jpg", "description": "Coffee, pastry, jus, 1L water, yaourt, honey, chocolate." },
+      { "id": 4, "name": "Breakfast Duo", "price": 25, "image": "images/breakfast/duo.jpg", "description": "Breakfast Maximum for two persons." }
     ]
   },
   {
-    "category": "Water",
+    "category": "Coffee & Espresso",
     "items": [
-      { "id": 5, "name": "0.5L", "price": 1.2, "image": "images/water/0.5l.jpg" },
-      { "id": 6, "name": "1.0L", "price": 2.0, "image": "images/water/1.0l.jpg" }
+      { "id": 5, "name": "Espresso", "price": 2.5, "image": "images/coffee/espresso.jpg", "description": "Strong and bold pure coffee shot." },
+      { "id": 6, "name": "Cappuccino", "price": 2.8, "image": "images/coffee/cappuccino.jpg", "description": "Creamy foam atop rich espresso." },
+      { "id": 7, "name": "Americano", "price": 2.8, "image": "images/coffee/americano.jpg", "description": "Strong and bold and long coffee." },
+      { "id": 8, "name": "Latte", "price": 3, "image": "images/coffee/latte.jpg", "description": "Smooth blend of espresso and steamed milk." },
+      { "id": 9, "name": "Mocha", "price": 5.5, "image": "images/coffee/mocha.jpg", "description": "Chocolate-infused coffee delight." }
     ]
   },
   {
-    "category": "Tea",
+    "category": "Tea Selection",
     "items": [
-      { "id": 7, "name": "Green", "price": 2.5, "image": "images/tea/green.jpg" },
-      { "id": 8, "name": "Infusion", "price": 3.0, "image": "images/tea/infusion.jpg" }
+      { "id": 10, "name": "Green Tea", "price": 2.5, "image": "images/tea/green.jpg", "description": "Light and refreshing with antioxidant benefits." },
+      { "id": 11, "name": "Tisane", "price": 3, "image": "images/tea/tisane.jpg", "description": "Herbs, flowers, roots." },
+      { "id": 12, "name": "Almond Tea", "price": 6, "image": "images/tea/almond.jpg", "description": "Light and refreshing tea with almond." },
+      { "id": 13, "name": "Infusion Tea", "price": 3.5, "image": "images/tea/infusion.jpg", "description": "Calming caffeine-free blends for relaxation." }
     ]
   },
   {
-    "category": "Croissant",
+    "category": "Pastry",
     "items": [
-      { "id": 9, "name": "Chocolate", "price": 2.3, "image": "images/croissant/chocolate.jpg" },
-      { "id": 10, "name": "Almond", "price": 2.5, "image": "images/croissant/almond.jpg" },
-      { "id": 11, "name": "Special", "price": 2.5, "image": "images/croissant/special.jpg" }
+      { "id": 14, "name": "Cookies", "price": 4, "image": "images/pastries/cookies.jpg", "description": "Freshly baked, soft inside with a slight crunch." },
+      { "id": 15, "name": "Brownies", "price": 4, "image": "images/pastries/brownies.jpg", "description": "Dense, fudgy chocolate squares full of flavor." },
+      { "id": 16, "name": "Fondant", "price": 4.5, "image": "images/pastries/fondant.jpg", "description": "Rich chocolate fondant." },
+      { "id": 17, "name": "Cake Orange", "price": 3.5, "image": "images/pastries/cake-orange.jpg", "description": "Fresh orange cake." },
+      { "id": 18, "name": "Cake Citron", "price": 3.5, "image": "images/pastries/cake-citron.jpg", "description": "Lemon cake." },
+      { "id": 19, "name": "Cake Chocolate", "price": 3.5, "image": "images/pastries/cake-chocolate.jpg", "description": "Chocolate cake." }
     ]
   },
   {
-    "category": "Pastries",
+    "category": "Juices & Cold Drinks",
     "items": [
-      { "id": 12, "name": "Cookies", "price": 2.0, "image": "images/pastries/cookies.jpg" },
-      { "id": 13, "name": "Brownies", "price": 2.5, "image": "images/pastries/brownies.jpg" }
+      { "id": 20, "name": "Orange Juice", "price": 3.5, "image": "images/juices/orange.jpg", "description": "Fresh, cold-pressed." },
+      { "id": 21, "name": "Citronade", "price": 4, "image": "images/juices/citronade.jpg", "description": "Cool, tangy lemon drink." },
+      { "id": 22, "name": "Fraise", "price": 6, "image": "images/juices/fraise.jpg", "description": "Sweet strawberry." },
+      { "id": 23, "name": "Cocktails", "price": 8, "image": "images/juices/cocktails.jpg", "description": "Smooth blend of fruity flavors." },
+      { "id": 24, "name": "Milkshake", "price": 6.5, "image": "images/juices/milkshake.jpg", "description": "Creamy, rich, and indulgent." }
+    ]
+  },
+  {
+    "category": "Iced Coffee",
+    "items": [
+      { "id": 25, "name": "Iced Espresso", "price": 4, "image": "images/iced/espresso.jpg", "description": "Bold espresso served chilled." },
+      { "id": 26, "name": "Iced Cappuccino", "price": 4.5, "image": "images/iced/cappuccino.jpg", "description": "Creamy, frothy, and refreshing." },
+      { "id": 27, "name": "Iced Americano", "price": 5.5, "image": "images/iced/americano.jpg", "description": "Smooth, light iced coffee." },
+      { "id": 28, "name": "Iced Latte", "price": 6, "image": "images/iced/latte.jpg", "description": "Silky milk with a coffee touch." }
     ]
   }
 ]

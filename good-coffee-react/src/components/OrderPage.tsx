@@ -102,10 +102,6 @@ export default function OrderPage() {
     });
   };
 
-  const toggleCategory = (cat: string) => {
-    setOpenCategories((prev) => ({ ...prev, [cat]: !prev[cat] }));
-  };
-
   const cartItems = Object.values(cart);
   const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -246,7 +242,7 @@ export default function OrderPage() {
               )}
 
               {/* Menu */}
-              <div className="card">
+              <div className="card menu-card">
                 <h2>
                   <i
                     className="fas fa-coffee"
@@ -254,36 +250,111 @@ export default function OrderPage() {
                   />
                   Menu
                 </h2>
-                {menuItems.map((cat) => (
-                  <div key={cat.category} className="menu-category">
-                    <div
-                      className={`category-title ${
-                        openCategories[cat.category] ? 'open' : ''
+
+                {/* Category tabs — horizontal scroll */}
+                <div className="category-tabs">
+                  {menuItems.map((cat) => (
+                    <button
+                      key={cat.category}
+                      className={`category-tab ${
+                        openCategories[cat.category] ? 'active' : ''
                       }`}
-                      onClick={() => toggleCategory(cat.category)}
+                      onClick={() => {
+                        // Toggle: if already open close it, otherwise open only this one
+                        setOpenCategories((prev) => {
+                          const isOpen = prev[cat.category];
+                          // Close all, then open selected (or close if toggling off)
+                          const next: Record<string, boolean> = {};
+                          if (!isOpen) next[cat.category] = true;
+                          return next;
+                        });
+                      }}
                     >
+                      <span className="tab-icon">
+                        {cat.category === 'Breakfast' && <i className="fas fa-egg" />}
+                        {cat.category === 'Coffee & Espresso' && <i className="fas fa-mug-hot" />}
+                        {cat.category === 'Tea Selection' && <i className="fas fa-leaf" />}
+                        {cat.category === 'Pastry' && <i className="fas fa-cookie-bite" />}
+                        {cat.category === 'Juices & Cold Drinks' && <i className="fas fa-glass-whiskey" />}
+                        {cat.category === 'Iced Coffee' && <i className="fas fa-snowflake" />}
+                      </span>
                       {cat.category}
-                    </div>
-                    {openCategories[cat.category] && (
+                    </button>
+                  ))}
+                </div>
+
+                {/* Items for active category */}
+                {menuItems.map((cat) =>
+                  openCategories[cat.category] ? (
+                    <div key={cat.category} className="menu-items-section">
                       <div className="menu-items-grid">
-                        {cat.items.map((item) => (
-                          <div className="menu-item" key={item.id}>
-                            <img src={item.image} alt={item.name} />
-                            <div className="menu-item-info">
-                              <strong>{item.name}</strong>
-                              <span className="menu-item-price">
-                                {item.price.toFixed(2)} DT
-                              </span>
+                        {cat.items.map((item) => {
+                          const inCart = cart[item.id];
+                          return (
+                            <div
+                              className={`menu-item ${inCart ? 'in-cart' : ''}`}
+                              key={item.id}
+                            >
+                              <div className="menu-item-img-wrap">
+                                <img src={item.image} alt={item.name} />
+                                {inCart && (
+                                  <span className="menu-item-cart-badge">
+                                    {inCart.quantity}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="menu-item-body">
+                                <div className="menu-item-info">
+                                  <strong>{item.name}</strong>
+                                  {item.description && (
+                                    <p className="menu-item-desc">{item.description}</p>
+                                  )}
+                                </div>
+                                <div className="menu-item-footer">
+                                  <span className="menu-item-price">
+                                    {item.price.toFixed(1)} DT
+                                  </span>
+                                  {inCart ? (
+                                    <div className="menu-item-qty-controls">
+                                      <button
+                                        className="qty-btn"
+                                        onClick={() => removeFromCart(item.id)}
+                                      >
+                                        −
+                                      </button>
+                                      <span className="qty-value">{inCart.quantity}</span>
+                                      <button
+                                        className="qty-btn"
+                                        onClick={() => addToCart(item)}
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      className="menu-add-btn"
+                                      onClick={() => addToCart(item)}
+                                    >
+                                      <i className="fas fa-plus" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                            <button onClick={() => addToCart(item)}>
-                              <i className="fas fa-plus" /> Add
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
+                  ) : null
+                )}
+
+                {/* Prompt if nothing selected */}
+                {Object.values(openCategories).every((v) => !v) && (
+                  <div className="menu-empty-prompt">
+                    <i className="fas fa-hand-pointer" />
+                    <p>Select a category above to browse items</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
