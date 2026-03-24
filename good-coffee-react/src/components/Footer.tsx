@@ -39,9 +39,8 @@ export default function Footer() {
 
         <div className="box">
           <h3>follow us</h3>
-          <a href="https://www.facebook.com/profile.php?id=61575aborede" target="_blank" rel="noopener noreferrer"><i className="fab fa-facebook-f" /> facebook</a>
-          <a href="https://www.instagram.com/good_coffee_nabeul" target="_blank" rel="noopener noreferrer"><i className="fab fa-instagram" /> instagram</a>
-          <a href="https://www.tiktok.com/@good_coffee_nabeul" target="_blank" rel="noopener noreferrer"><i className="fab fa-tiktok" /> tiktok</a>
+          <a href="https://www.facebook.com/profile.php?id=61553929593153&locale=fr_FR" target="_blank" rel="noopener noreferrer"><i className="fab fa-facebook-f" /> facebook</a>
+          <a href="https://www.instagram.com/goodcoffee__official/" target="_blank" rel="noopener noreferrer"><i className="fab fa-instagram" /> instagram</a>
         </div>
       </div>
 

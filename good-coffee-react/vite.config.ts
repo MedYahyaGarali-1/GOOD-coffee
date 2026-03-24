@@ -11,7 +11,6 @@ export default defineConfig({
     }),
   ],
   server: {
-    host: true,
     proxy: {
       '/orders': 'http://localhost:3001',
       '/orders-by-name': 'http://localhost:3001',

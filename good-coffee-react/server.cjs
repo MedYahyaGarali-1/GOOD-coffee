@@ -50,6 +50,8 @@ app.get('/orders/:id', (req, res) => {
   let status = "";
   if (order.prepared) {
     status = "Ready";
+  } else if (order.preparing) {
+    status = "Preparing";
   } else if (diffMinutes < 2) {
     status = "In List";
   } else if (diffMinutes < 7) {
@@ -69,7 +71,16 @@ app.get('/orders/:id', (req, res) => {
   });
 });
 
-// Mark order as prepared
+// Mark order as preparing
+app.post('/orders/:id/preparing', (req, res) => {
+  const id = parseInt(req.params.id);
+  const order = orders.find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  order.preparing = true;
+  res.json({ success: true });
+});
+
+// Mark order as prepared/ready
 app.post('/orders/:id/prepared', (req, res) => {
   const id = parseInt(req.params.id);
   const order = orders.find(o => o.id === id);
@@ -88,6 +99,8 @@ app.get('/orders', (req, res) => {
     let status = "";
     if (order.prepared) {
       status = "Ready";
+    } else if (order.preparing) {
+      status = "Preparing";
     } else if (diffMinutes < 2) {
       status = "In List";
     } else if (diffMinutes < 7) {
@@ -124,6 +137,8 @@ app.get('/orders-by-name/:name', (req, res) => {
     let status = "";
     if (order.prepared) {
       status = "Ready";
+    } else if (order.preparing) {
+      status = "Preparing";
     } else if (diffMinutes < 2) {
       status = "In List";
     } else if (diffMinutes < 7) {

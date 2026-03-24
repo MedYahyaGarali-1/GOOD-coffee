@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { MenuCategory, MenuItem, Order } from '../types';
 
+type FilterTab = 'all' | 'In List' | 'Preparing' | 'Ready';
+
 export default function StaffDashboard() {
   const [menuItems, setMenuItems] = useState<MenuCategory[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [filter, setFilter] = useState<FilterTab>('all');
+  const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
     fetch('/menu.json')
@@ -17,7 +21,8 @@ export default function StaffDashboard() {
       const res = await fetch('/orders');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Order[] = await res.json();
-      setOrders(data.filter((o) => o.status !== 'Ready'));
+      setOrders(data);
+      setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching orders:', err);
     }
@@ -37,70 +42,192 @@ export default function StaffDashboard() {
     return undefined;
   };
 
-  const markPrepared = async (oid: number) => {
+  const markPreparing = async (oid: number) => {
+    try {
+      await fetch(`/orders/${oid}/preparing`, { method: 'POST' });
+      fetchOrders();
+    } catch (err) {
+      console.error('Error:', err);
+    }
+  };
+
+  const markReady = async (oid: number) => {
     try {
       await fetch(`/orders/${oid}/prepared`, { method: 'POST' });
       fetchOrders();
     } catch (err) {
-      console.error('Error marking order prepared:', err);
+      console.error('Error:', err);
     }
+  };
+
+  // Stats
+  const activeOrders = orders.filter((o) => o.status !== 'Ready');
+  const inListCount = orders.filter((o) => o.status === 'In List').length;
+  const preparingCount = orders.filter((o) => o.status === 'Preparing').length;
+  const readyCount = orders.filter((o) => o.status === 'Ready').length;
+
+  const filteredOrders =
+    filter === 'all' ? activeOrders : orders.filter((o) => o.status === filter);
+
+  const getElapsedClass = (mins: string) => {
+    const m = parseFloat(mins);
+    if (m >= 15) return 'urgent';
+    if (m >= 8) return 'warning';
+    return '';
   };
 
   return (
     <div className="staff-section">
-      <h1>Staff Order Dashboard</h1>
+      {/* Dashboard header */}
+      <div className="staff-header">
+        <div className="staff-header-top">
+          <h1>
+            <i className="fas fa-concierge-bell" /> Order Dashboard
+          </h1>
+          <div className="staff-live-badge">
+            <span className="pulse-dot" />
+            Live — updated {lastRefresh.toLocaleTimeString()}
+          </div>
+        </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Order ID</th>
-            <th>Name</th>
-            <th>Location</th>
-            <th>Table</th>
-            <th>Items</th>
-            <th>Status</th>
-            <th>Elapsed (min)</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.length === 0 ? (
-            <tr>
-              <td colSpan={8} style={{ textAlign: 'center' }}>
-                No active orders
-              </td>
-            </tr>
-          ) : (
-            orders.map((order) => (
-              <tr key={order.id}>
-                <td>{order.id}</td>
-                <td>{order.name || '-'}</td>
-                <td>{order.location || '-'}</td>
-                <td>{order.table || '-'}</td>
-                <td>
-                  <ul className="items-list">
-                    {order.items.map((i) => {
-                      const menuItem = findMenuItem(i.id);
-                      return (
-                        <li key={i.id}>
-                          {menuItem ? menuItem.name : 'Unknown Item'} x{i.quantity || 1}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </td>
-                <td className={`status-${order.status.replace(/\s/g, '-')}`}>
+        {/* Stats row */}
+        <div className="staff-stats">
+          <div className="stat-card stat-total">
+            <i className="fas fa-receipt" />
+            <div>
+              <span className="stat-number">{activeOrders.length}</span>
+              <span className="stat-label">Active</span>
+            </div>
+          </div>
+          <div className="stat-card stat-inlist">
+            <i className="fas fa-list" />
+            <div>
+              <span className="stat-number">{inListCount}</span>
+              <span className="stat-label">In List</span>
+            </div>
+          </div>
+          <div className="stat-card stat-preparing">
+            <i className="fas fa-fire" />
+            <div>
+              <span className="stat-number">{preparingCount}</span>
+              <span className="stat-label">Preparing</span>
+            </div>
+          </div>
+          <div className="stat-card stat-ready">
+            <i className="fas fa-check-circle" />
+            <div>
+              <span className="stat-number">{readyCount}</span>
+              <span className="stat-label">Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="staff-filters">
+        {(['all', 'In List', 'Preparing', 'Ready'] as FilterTab[]).map((tab) => (
+          <button
+            key={tab}
+            className={`filter-tab ${filter === tab ? 'active' : ''}`}
+            onClick={() => setFilter(tab)}
+          >
+            {tab === 'all' ? 'All Active' : tab}
+            <span className="filter-count">
+              {tab === 'all'
+                ? activeOrders.length
+                : orders.filter((o) => o.status === tab).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Order cards */}
+      <div className="staff-orders">
+        {filteredOrders.length === 0 ? (
+          <div className="staff-empty">
+            <i className="fas fa-mug-hot" />
+            <h3>No orders {filter !== 'all' ? `with status "${filter}"` : 'right now'}</h3>
+            <p>Orders will appear here automatically</p>
+          </div>
+        ) : (
+          filteredOrders.map((order) => (
+            <div
+              className={`staff-order-card status-border-${order.status.replace(/\s/g, '-')}`}
+              key={order.id}
+            >
+              <div className="order-card-header">
+                <div className="order-card-id">
+                  <span className="order-hash">#</span>
+                  {order.id}
+                </div>
+                <span
+                  className={`staff-badge badge-${order.status.replace(/\s/g, '-')}`}
+                >
                   {order.status}
-                </td>
-                <td>{order.elapsedMinutes ?? '-'}</td>
-                <td>
-                  <button onClick={() => markPrepared(order.id)}>Mark as Prepared</button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+                </span>
+              </div>
+
+              <div className="order-card-details">
+                <div className="order-detail">
+                  <i className="fas fa-user" />
+                  <span>{order.name}</span>
+                </div>
+                <div className="order-detail">
+                  <i className="fas fa-map-marker-alt" />
+                  <span>{order.location}</span>
+                </div>
+                <div className="order-detail">
+                  <i className="fas fa-chair" />
+                  <span>Table {order.table}</span>
+                </div>
+                <div className={`order-detail ${getElapsedClass(order.elapsedMinutes)}`}>
+                  <i className="fas fa-clock" />
+                  <span>{parseFloat(order.elapsedMinutes).toFixed(0)} min</span>
+                </div>
+              </div>
+
+              <div className="order-card-items">
+                <h4>Items</h4>
+                <div className="items-chips">
+                  {order.items.map((i) => {
+                    const menuItem = findMenuItem(i.id);
+                    return (
+                      <span className="item-chip" key={i.id}>
+                        {menuItem ? menuItem.name : 'Unknown'}
+                        <span className="chip-qty">×{i.quantity || 1}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="order-card-actions">
+                {order.status === 'In List' && (
+                  <button
+                    className="btn-start"
+                    onClick={() => markPreparing(order.id)}
+                  >
+                    <i className="fas fa-fire" /> Start Preparing
+                  </button>
+                )}
+                {order.status === 'Preparing' && (
+                  <button
+                    className="btn-ready"
+                    onClick={() => markReady(order.id)}
+                  >
+                    <i className="fas fa-check" /> Mark Ready
+                  </button>
+                )}
+                {order.status === 'Ready' && (
+                  <span className="done-label">
+                    <i className="fas fa-check-double" /> Done
+                  </span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
