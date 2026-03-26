@@ -1,166 +1,495 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const { Pool } = require('pg');
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Serve menu.json from public folder
+// Serve menu.json and other assets from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PORT = 3001;
+// In production, serve the built React app from dist/
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
-// In-memory orders store
-let orders = [];
-let nextOrderId = 1;
+const PORT = process.env.PORT || 3001;
+const HOST = '0.0.0.0';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/good_coffee';
 
-// API endpoint: place order
-app.post('/orders', (req, res) => {
-  const { name, location, table, items } = req.body;
-  if (!name || !location || !table || !items || items.length === 0) {
-    return res.status(400).json({ error: "Missing order info" });
+// Telegram bot config
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+// Load menu.json once (for item name lookups in Telegram messages)
+let menuData = [];
+try {
+  menuData = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'menu.json'), 'utf-8'));
+} catch { /* menu not found — names will fall back to IDs */ }
+
+function findMenuItemName(id) {
+  for (const cat of menuData) {
+    const item = cat.items.find(i => i.id === id);
+    if (item) return item.name;
   }
-  const order = {
-    id: nextOrderId++,
-    name,
-    location,
-    table,
-    items,
-    timestamp: new Date().toISOString(),
+  return `Item #${id}`;
+}
+
+async function notifyTelegram(orderId, name, location, table, items) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    const itemLines = items.map(i => {
+      const itemName = findMenuItemName(i.id);
+      const variant = i.variant ? ` (${i.variant})` : '';
+      return `  • ${itemName}${variant} ×${i.quantity}`;
+    }).join('\n');
+
+    const text =
+      `🔔 *New Order #${orderId}*\n` +
+      `👤 *${name}*\n` +
+      `📍 ${location} — Table ${table}\n\n` +
+      `${itemLines}`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: 'Markdown',
+      }),
+    });
+  } catch (err) {
+    console.error('Telegram notification failed:', err.message);
+  }
+}
+
+// PostgreSQL connection pool
+const pool = new Pool({ connectionString: DATABASE_URL });
+
+// Helper: compute status from an order row
+function getStatus(order) {
+  const diffMinutes = (Date.now() - new Date(order.created_at).getTime()) / 60000;
+  if (order.prepared) return 'Ready';
+  if (order.preparing) return 'Preparing';
+  if (diffMinutes < 2) return 'In List';
+  if (diffMinutes < 7) return 'Preparing';
+  return 'Ready';
+}
+
+function getElapsed(order) {
+  return ((Date.now() - new Date(order.created_at).getTime()) / 60000).toFixed(1);
+}
+
+function formatOrder(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    table: row.table,
+    items: row.items,
+    status: getStatus(row),
+    elapsedMinutes: getElapsed(row),
+    timestamp: row.created_at,
   };
-  orders.push(order);
-  res.json({ orderId: order.id });
+}
+
+// ==================== API ROUTES ====================
+
+// Admin PIN (change this!)
+const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
+
+// Admin auth middleware
+function requireAdmin(req, res, next) {
+  const pin = req.headers['x-admin-pin'];
+  if (pin !== ADMIN_PIN) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
+
+// Place a new order (with optional coupon)
+app.post('/orders', async (req, res) => {
+  const { name, location, table, items, couponCode } = req.body;
+  if (!name || !location || !table || !items || items.length === 0) {
+    return res.status(400).json({ error: 'Missing order info' });
+  }
+
+  let discount = 0;
+  let fixedPrice = null;
+  let couponId = null;
+
+  // Validate coupon if provided
+  if (couponCode) {
+    try {
+      const couponRes = await pool.query(
+        `SELECT * FROM coupons WHERE UPPER(code) = UPPER($1) AND used = FALSE AND expires_at > NOW()`,
+        [couponCode]
+      );
+      if (couponRes.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid or expired coupon code' });
+      }
+      const coupon = couponRes.rows[0];
+      discount = coupon.discount_percent || 0;
+      fixedPrice = coupon.fixed_price;
+      couponId = coupon.id;
+    } catch (err) {
+      console.error('Error validating coupon:', err);
+    }
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO orders (name, location, "table", items, coupon_id, discount_percent, fixed_price) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [name, location, table, JSON.stringify(items), couponId, discount, fixedPrice]
+    );
+
+    // Mark coupon as used
+    if (couponId) {
+      await pool.query('UPDATE coupons SET used = TRUE WHERE id = $1', [couponId]);
+    }
+
+    const orderId = result.rows[0].id;
+
+    // Send Telegram notification to baristas
+    notifyTelegram(orderId, name, location, table, items);
+
+    res.json({ orderId, discount, fixedPrice });
+  } catch (err) {
+    console.error('Error creating order:', err);
+    res.status(500).json({ error: 'Failed to create order' });
+  }
 });
 
-// API endpoint: get order status by id
-app.get('/orders/:id', (req, res) => {
+// Get single order by ID
+app.get('/orders/:id', async (req, res) => {
   const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(404).json({ error: 'Not found' });
 
-  // Handle the "prepared" route
-  if (req.params.id === 'prepared') return res.status(404).json({ error: "Not found" });
-
-  const order = orders.find(o => o.id === id);
-  if (!order) return res.status(404).json({ error: "Order not found" });
-
-  const orderTime = new Date(order.timestamp);
-  const now = new Date();
-  const diffMinutes = (now - orderTime) / 60000;
-
-  let status = "";
-  if (order.prepared) {
-    status = "Ready";
-  } else if (order.preparing) {
-    status = "Preparing";
-  } else if (diffMinutes < 2) {
-    status = "In List";
-  } else if (diffMinutes < 7) {
-    status = "Preparing";
-  } else {
-    status = "Ready";
+  try {
+    const result = await pool.query('SELECT * FROM orders WHERE id = $1', [id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    res.json(formatOrder(result.rows[0]));
+  } catch (err) {
+    console.error('Error fetching order:', err);
+    res.status(500).json({ error: 'Failed to fetch order' });
   }
-
-  res.json({
-    id: order.id,
-    name: order.name,
-    location: order.location,
-    table: order.table,
-    items: order.items,
-    status,
-    elapsedMinutes: diffMinutes.toFixed(1),
-  });
 });
 
 // Mark order as preparing
-app.post('/orders/:id/preparing', (req, res) => {
+app.post('/orders/:id/preparing', async (req, res) => {
   const id = parseInt(req.params.id);
-  const order = orders.find(o => o.id === id);
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  order.preparing = true;
-  res.json({ success: true });
+  try {
+    const result = await pool.query(
+      'UPDATE orders SET preparing = TRUE WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating order:', err);
+    res.status(500).json({ error: 'Failed to update order' });
+  }
 });
 
 // Mark order as prepared/ready
-app.post('/orders/:id/prepared', (req, res) => {
+app.post('/orders/:id/prepared', async (req, res) => {
   const id = parseInt(req.params.id);
-  const order = orders.find(o => o.id === id);
-  if (!order) return res.status(404).json({ error: "Order not found" });
-  order.prepared = true;
-  res.json({ success: true });
+  try {
+    const result = await pool.query(
+      'UPDATE orders SET prepared = TRUE WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating order:', err);
+    res.status(500).json({ error: 'Failed to update order' });
+  }
 });
 
-// API endpoint to get all orders with statuses
-app.get('/orders', (req, res) => {
-  const now = new Date();
-
-  const ordersWithStatus = orders.map(order => {
-    const orderTime = new Date(order.timestamp);
-    const diffMinutes = (now - orderTime) / 60000;
-    let status = "";
-    if (order.prepared) {
-      status = "Ready";
-    } else if (order.preparing) {
-      status = "Preparing";
-    } else if (diffMinutes < 2) {
-      status = "In List";
-    } else if (diffMinutes < 7) {
-      status = "Preparing";
-    } else {
-      status = "Ready";
-    }
-
-    return {
-      id: order.id,
-      name: order.name,
-      location: order.location,
-      table: order.table,
-      items: order.items,
-      status,
-      elapsedMinutes: diffMinutes.toFixed(1),
-      timestamp: order.timestamp
-    };
-  });
-
-  res.json(ordersWithStatus);
+// Get all orders (for staff dashboard)
+app.get('/orders', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM orders WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC'
+    );
+    res.json(result.rows.map(formatOrder));
+  } catch (err) {
+    console.error('Error fetching orders:', err);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
 });
 
-// Get all orders by customer name (case insensitive)
-app.get('/orders-by-name/:name', (req, res) => {
+// Get orders by customer name
+app.get('/orders-by-name/:name', async (req, res) => {
   const name = req.params.name.toLowerCase();
-  const now = new Date();
+  try {
+    const result = await pool.query(
+      'SELECT * FROM orders WHERE LOWER(name) = $1 AND created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC',
+      [name]
+    );
+    res.json(result.rows.map(formatOrder));
+  } catch (err) {
+    console.error('Error fetching orders:', err);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
 
-  const filteredOrders = orders.filter(order => order.name.toLowerCase() === name);
+// Coffee coupon prices — per-item fixed prices when a coupon is applied
+const COFFEE_COUPON_PRICES = {
+  5: 2,     // Espresso: 2.5 → 2 DT
+  6: 2.4,   // Cappuccino: 2.8 → 2.4 DT
+  7: 2.5,   // Americano: 2.8 → 2.5 DT
+  8: 2.5,   // Latte: 3 → 2.5 DT
+  // 9 (Mocha) not included — stays at normal price
+};
 
-  const ordersWithStatus = filteredOrders.map(order => {
-    const orderTime = new Date(order.timestamp);
-    const diffMinutes = (now - orderTime) / 60000;
-    let status = "";
-    if (order.prepared) {
-      status = "Ready";
-    } else if (order.preparing) {
-      status = "Preparing";
-    } else if (diffMinutes < 2) {
-      status = "In List";
-    } else if (diffMinutes < 7) {
-      status = "Preparing";
-    } else {
-      status = "Ready";
-    }
+// Validate coupon (public — for order page)
+app.get('/coupons/validate/:code', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT code, client_name, discount_percent, fixed_price FROM coupons WHERE UPPER(code) = UPPER($1) AND used = FALSE AND expires_at > NOW()`,
+      [req.params.code]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Invalid or expired coupon' });
+    res.json({ ...result.rows[0], applies_to: 'coffee_only', coffee_coupon_prices: COFFEE_COUPON_PRICES });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to validate coupon' });
+  }
+});
 
-    return {
-      id: order.id,
-      location: order.location,
-      table: order.table,
-      items: order.items,
-      status,
-      elapsedMinutes: diffMinutes.toFixed(1),
-      timestamp: order.timestamp
-    };
+// ==================== ADMIN API ROUTES ====================
+
+// Admin login check
+app.post('/admin/login', (req, res) => {
+  const { pin } = req.body;
+  if (pin === ADMIN_PIN) return res.json({ success: true });
+  res.status(401).json({ error: 'Wrong PIN' });
+});
+
+// Get all coupons
+app.get('/admin/coupons', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM coupons ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch coupons' });
+  }
+});
+
+// Create coupon
+app.post('/admin/coupons', requireAdmin, async (req, res) => {
+  const { client_name, discount_percent, fixed_price, expires_days } = req.body;
+  if (!client_name) return res.status(400).json({ error: 'Client name required' });
+
+  // Generate unique code: GC-XXXX
+  const code = 'GC-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  const expiresDays = expires_days || 30;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO coupons (code, client_name, discount_percent, fixed_price, expires_at) 
+       VALUES ($1, $2, $3, $4, NOW() + $5::interval) RETURNING *`,
+      [code, client_name, discount_percent || 0, fixed_price || null, `${expiresDays} days`]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating coupon:', err);
+    res.status(500).json({ error: 'Failed to create coupon' });
+  }
+});
+
+// Delete coupon
+app.delete('/admin/coupons/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM coupons WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete coupon' });
+  }
+});
+
+// Reports API
+app.get('/admin/reports', requireAdmin, async (req, res) => {
+  const { period } = req.query; // hourly, daily, weekly, monthly, yearly
+  
+  let interval, groupBy, dateFormat;
+  switch (period) {
+    case 'hourly':
+      interval = "24 hours";
+      groupBy = "date_trunc('hour', created_at)";
+      dateFormat = "TO_CHAR(date_trunc('hour', created_at), 'HH24:00')";
+      break;
+    case 'weekly':
+      interval = "7 days";
+      groupBy = "DATE(created_at)";
+      dateFormat = "TO_CHAR(DATE(created_at), 'Dy DD Mon')";
+      break;
+    case 'monthly':
+      interval = "30 days";
+      groupBy = "DATE(created_at)";
+      dateFormat = "TO_CHAR(DATE(created_at), 'DD Mon')";
+      break;
+    case 'yearly':
+      interval = "365 days";
+      groupBy = "date_trunc('month', created_at)";
+      dateFormat = "TO_CHAR(date_trunc('month', created_at), 'Mon YYYY')";
+      break;
+    default: // daily
+      interval = "24 hours";
+      groupBy = "date_trunc('hour', created_at)";
+      dateFormat = "TO_CHAR(date_trunc('hour', created_at), 'HH24:00')";
+  }
+
+  try {
+    // Summary stats
+    const summary = await pool.query(
+      `SELECT COUNT(*) as total_orders, 
+              COALESCE(SUM(jsonb_array_length(items)), 0) as total_items
+       FROM orders WHERE created_at > NOW() - $1::interval`,
+      [interval]
+    );
+
+    // Orders over time
+    const timeline = await pool.query(
+      `SELECT ${dateFormat} as label, COUNT(*) as order_count
+       FROM orders WHERE created_at > NOW() - $1::interval
+       GROUP BY ${groupBy} ORDER BY ${groupBy}`,
+      [interval]
+    );
+
+    // Top items (flatten JSONB items array)
+    const topItems = await pool.query(
+      `SELECT item->>'id' as item_id, SUM((item->>'quantity')::int) as total_qty
+       FROM orders, jsonb_array_elements(items) as item
+       WHERE created_at > NOW() - $1::interval
+       GROUP BY item->>'id' ORDER BY total_qty DESC LIMIT 10`,
+      [interval]
+    );
+
+    // Top customers
+    const topCustomers = await pool.query(
+      `SELECT name, COUNT(*) as order_count 
+       FROM orders WHERE created_at > NOW() - $1::interval
+       GROUP BY name ORDER BY order_count DESC LIMIT 10`,
+      [interval]
+    );
+
+    res.json({
+      period: period || 'daily',
+      summary: summary.rows[0],
+      timeline: timeline.rows,
+      topItems: topItems.rows,
+      topCustomers: topCustomers.rows,
+    });
+  } catch (err) {
+    console.error('Error generating report:', err);
+    res.status(500).json({ error: 'Failed to generate report' });
+  }
+});
+
+// Menu management — update menu.json
+app.get('/admin/menu', requireAdmin, async (req, res) => {
+  try {
+    const menuPath = path.join(__dirname, 'public', 'menu.json');
+    const data = fs.readFileSync(menuPath, 'utf8');
+    res.json(JSON.parse(data));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read menu' });
+  }
+});
+
+app.put('/admin/menu', requireAdmin, async (req, res) => {
+  try {
+    const menuPath = path.join(__dirname, 'public', 'menu.json');
+    fs.writeFileSync(menuPath, JSON.stringify(req.body, null, 2));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save menu' });
+  }
+});
+
+// SPA catch-all: serve index.html for any non-API route (production)
+if (fs.existsSync(distPath)) {
+  app.get('/{*splat}', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
   });
+}
 
-  res.json(ordersWithStatus);
-});
+// Start server after verifying DB connection
+async function start() {
+  try {
+    const client = await pool.connect();
+    console.log('✅ Connected to PostgreSQL');
 
-app.listen(PORT, () => {
-  console.log(`API Server running on http://localhost:${PORT}`);
-});
+    // Auto-create tables if they don't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        location VARCHAR(255) NOT NULL,
+        "table" VARCHAR(50) NOT NULL,
+        items JSONB NOT NULL,
+        preparing BOOLEAN DEFAULT FALSE,
+        prepared BOOLEAN DEFAULT FALSE,
+        coupon_id INTEGER,
+        discount_percent NUMERIC DEFAULT 0,
+        fixed_price NUMERIC,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS coupons (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(20) UNIQUE NOT NULL,
+        client_name VARCHAR(255) NOT NULL,
+        discount_percent NUMERIC DEFAULT 0,
+        fixed_price NUMERIC,
+        used BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+      );
+    `);
+
+    // Add new columns if they don't exist (for existing DBs)
+    await client.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_id INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_percent NUMERIC DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS fixed_price NUMERIC;
+    `).catch(() => {});
+
+    client.release();
+
+    app.listen(PORT, HOST, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`LAN access: http://${getLocalIP()}:${PORT}`);
+      console.log(`Staff dashboard: http://localhost:${PORT}/staff`);
+      console.log(`Order page: http://${getLocalIP()}:${PORT}/order`);
+    });
+  } catch (err) {
+    console.error('❌ Failed to connect to PostgreSQL:', err.message);
+    console.error('Make sure PostgreSQL is running and the database exists.');
+    console.error(`Connection URL: ${DATABASE_URL.replace(/:[^@]+@/, ':***@')}`);
+    process.exit(1);
+  }
+}
+
+start();
+
+function getLocalIP() {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}

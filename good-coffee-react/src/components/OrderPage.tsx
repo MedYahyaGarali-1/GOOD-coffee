@@ -4,17 +4,36 @@ import type { MenuCategory, MenuItem, CartItem, Order } from '../types';
 
 export default function OrderPage() {
   const [menuItems, setMenuItems] = useState<MenuCategory[]>([]);
-  const [cart, setCart] = useState<Record<number, CartItem>>({});
+  const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [table, setTable] = useState('');
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'order' | 'tracking'>('order');
 
   const [orderId, setOrderId] = useState<number | null>(null);
   const [orderStatus, setOrderStatus] = useState<Order | null>(null);
   const [pastOrders, setPastOrders] = useState<Order[]>([]);
+  const [trackingName, setTrackingName] = useState('');
   const [showForm, setShowForm] = useState(true);
+
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    client_name: string;
+    coffee_coupon_prices: Record<string, number>;
+  } | null>(null);
+  const [couponError, setCouponError] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
+
+  // Espresso variant picker
+  const [variantPicker, setVariantPicker] = useState<MenuItem | null>(null);
+
+  // IDs that require a variant choice
+  const ESPRESSO_IDS = [5, 25]; // Espresso & Iced Espresso
+  const ESPRESSO_VARIANTS = ['Serrée', 'Normale', 'Allongée'];
 
   // Fetch menu on mount — open first category by default
   useEffect(() => {
@@ -29,17 +48,13 @@ export default function OrderPage() {
       .catch(() => alert('Failed to load menu'));
   }, []);
 
-  // Auto-fetch past orders when name changes
+  // Auto-refresh past orders when on tracking tab
   useEffect(() => {
-    if (name.trim().length === 0) {
-      setPastOrders([]);
-      return;
-    }
-    const timeout = setTimeout(() => {
-      fetchPastOrders(name.trim());
-    }, 500);
-    return () => clearTimeout(timeout);
-  }, [name]);
+    if (activeTab !== 'tracking' || trackingName.trim().length === 0) return;
+    fetchPastOrders(trackingName.trim());
+    const interval = setInterval(() => fetchPastOrders(trackingName.trim()), 5000);
+    return () => clearInterval(interval);
+  }, [activeTab, trackingName]);
 
   // Poll order status
   useEffect(() => {
@@ -79,32 +94,92 @@ export default function OrderPage() {
     [menuItems]
   );
 
-  const addToCart = (item: MenuItem) => {
+  // Cart key = "id" or "id-variant"
+  const cartKey = (id: number, variant?: string) => variant ? `${id}-${variant}` : `${id}`;
+
+  const addToCart = (item: MenuItem, variant?: string) => {
+    // If this is an espresso item and no variant chosen yet, show picker
+    if (ESPRESSO_IDS.includes(item.id) && !variant) {
+      setVariantPicker(item);
+      return;
+    }
+    const key = cartKey(item.id, variant);
     setCart((prev) => {
-      const existing = prev[item.id];
+      const existing = prev[key];
       if (existing) {
-        return { ...prev, [item.id]: { ...existing, quantity: existing.quantity + 1 } };
+        return { ...prev, [key]: { ...existing, quantity: existing.quantity + 1 } };
       }
-      return { ...prev, [item.id]: { ...item, quantity: 1 } };
+      return { ...prev, [key]: { ...item, quantity: 1, variant } };
     });
   };
 
-  const removeFromCart = (itemId: number) => {
+  const removeFromCart = (key: string) => {
     setCart((prev) => {
-      const existing = prev[itemId];
+      const existing = prev[key];
       if (!existing) return prev;
       if (existing.quantity <= 1) {
         const next = { ...prev };
-        delete next[itemId];
+        delete next[key];
         return next;
       }
-      return { ...prev, [itemId]: { ...existing, quantity: existing.quantity - 1 } };
+      return { ...prev, [key]: { ...existing, quantity: existing.quantity - 1 } };
     });
   };
 
-  const cartItems = Object.values(cart);
-  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartEntries = Object.entries(cart);          // [key, CartItem][]
+  const cartItems   = cartEntries.map(([, v]) => v); // CartItem[]
+
+  // Total quantity of an item id across all variants (for grid badge)
+  const totalQtyForId = (id: number) =>
+    cartEntries.reduce((sum, [, v]) => (v.id === id ? sum + v.quantity : sum), 0);
+
+  // Is an espresso item? (used to decide grid UX)
+  const isEspresso = (id: number) => ESPRESSO_IDS.includes(id);
+
+  // Calculate total with coffee-only coupon logic
+  const getCouponPrice = (id: number): number | null => {
+    if (!appliedCoupon) return null;
+    const p = appliedCoupon.coffee_coupon_prices[String(id)];
+    return p !== undefined ? p : null;
+  };
+
+  const getItemPrice = (item: CartItem) => {
+    const couponPrice = getCouponPrice(item.id);
+    return couponPrice !== null ? couponPrice : item.price;
+  };
+
+  const total = cartItems.reduce((sum, item) => sum + getItemPrice(item) * item.quantity, 0);
+  const totalWithoutCoupon = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const savings = totalWithoutCoupon - total;
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError('');
+    try {
+      const res = await fetch(`/coupons/validate/${encodeURIComponent(couponCode.trim())}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setCouponError(data.error || 'Invalid coupon');
+        setAppliedCoupon(null);
+      } else {
+        setAppliedCoupon(data);
+        setCouponError('');
+      }
+    } catch {
+      setCouponError('Failed to validate coupon');
+      setAppliedCoupon(null);
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCouponError('');
+  };
 
   const handleSubmit = async () => {
     if (!name.trim() || !location || !table.trim()) {
@@ -125,7 +200,8 @@ export default function OrderPage() {
           name: name.trim(),
           location,
           table: table.trim(),
-          items: cartItems.map(({ id, quantity }) => ({ id, quantity })),
+          items: cartItems.map(({ id, quantity, variant }) => ({ id, quantity, ...(variant ? { variant } : {}) })),
+          couponCode: appliedCoupon ? appliedCoupon.code : undefined,
         }),
       });
       const data = await res.json();
@@ -147,6 +223,9 @@ export default function OrderPage() {
     setOrderId(null);
     setOrderStatus(null);
     setShowForm(true);
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCouponError('');
   };
 
   const getStatusBadge = (status: string) => {
@@ -168,8 +247,26 @@ export default function OrderPage() {
         </div>
       </div>
 
+      {/* Tab navigation */}
+      <div className="order-tabs">
+        <button
+          className={`order-tab ${activeTab === 'order' ? 'active' : ''}`}
+          onClick={() => setActiveTab('order')}
+        >
+          <i className="fas fa-coffee" /> Order
+        </button>
+        <button
+          className={`order-tab ${activeTab === 'tracking' ? 'active' : ''}`}
+          onClick={() => setActiveTab('tracking')}
+        >
+          <i className="fas fa-receipt" /> My Orders
+        </button>
+      </div>
+
       <div className="order-container">
-        {showForm ? (
+        {activeTab === 'order' ? (
+          <>
+            {showForm ? (
           <div className="order-layout">
             {/* LEFT — Menu & Form */}
             <div className="order-main">
@@ -219,28 +316,6 @@ export default function OrderPage() {
                 </div>
               </div>
 
-              {/* Past orders */}
-              {pastOrders.length > 0 && (
-                <div className="card">
-                  <h3>
-                    <i
-                      className="fas fa-history"
-                      style={{ marginRight: '1rem', color: '#c08a5d' }}
-                    />
-                    Your Past Orders
-                  </h3>
-                  {pastOrders.slice(0, 2).map((order) => (
-                    <div className="past-order" key={order.id}>
-                      <p>
-                        <strong>Order #{order.id}</strong> —{' '}
-                        {getStatusBadge(order.status)}
-                      </p>
-                      <p>📍 {order.location} · Table {order.table}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Menu */}
               <div className="card menu-card">
                 <h2>
@@ -277,6 +352,7 @@ export default function OrderPage() {
                         {cat.category === 'Pastry' && <i className="fas fa-cookie-bite" />}
                         {cat.category === 'Juices & Cold Drinks' && <i className="fas fa-glass-whiskey" />}
                         {cat.category === 'Iced Coffee' && <i className="fas fa-snowflake" />}
+                        {cat.category === 'Water' && <i className="fas fa-tint" />}
                       </span>
                       {cat.category}
                     </button>
@@ -289,7 +365,10 @@ export default function OrderPage() {
                     <div key={cat.category} className="menu-items-section">
                       <div className="menu-items-grid">
                         {cat.items.map((item) => {
-                          const inCart = cart[item.id];
+                          const espresso = isEspresso(item.id);
+                          const totalQty = espresso ? totalQtyForId(item.id) : 0;
+                          const inCart = espresso ? totalQty > 0 : !!cart[cartKey(item.id)];
+                          const simpleEntry = cart[cartKey(item.id)]; // for non-espresso qty
                           return (
                             <div
                               className={`menu-item ${inCart ? 'in-cart' : ''}`}
@@ -299,7 +378,7 @@ export default function OrderPage() {
                                 <img src={item.image} alt={item.name} />
                                 {inCart && (
                                   <span className="menu-item-cart-badge">
-                                    {inCart.quantity}
+                                    {espresso ? totalQty : simpleEntry?.quantity}
                                   </span>
                                 )}
                               </div>
@@ -314,15 +393,23 @@ export default function OrderPage() {
                                   <span className="menu-item-price">
                                     {item.price.toFixed(1)} DT
                                   </span>
-                                  {inCart ? (
+                                  {espresso ? (
+                                    /* Espresso: always show add btn (opens variant picker) */
+                                    <button
+                                      className="menu-add-btn"
+                                      onClick={() => addToCart(item)}
+                                    >
+                                      <i className="fas fa-plus" />
+                                    </button>
+                                  ) : inCart && simpleEntry ? (
                                     <div className="menu-item-qty-controls">
                                       <button
                                         className="qty-btn"
-                                        onClick={() => removeFromCart(item.id)}
+                                        onClick={() => removeFromCart(cartKey(item.id))}
                                       >
                                         −
                                       </button>
-                                      <span className="qty-value">{inCart.quantity}</span>
+                                      <span className="qty-value">{simpleEntry.quantity}</span>
                                       <button
                                         className="qty-btn"
                                         onClick={() => addToCart(item)}
@@ -389,21 +476,71 @@ export default function OrderPage() {
                     </div>
                   ) : (
                     <>
-                      {cartItems.map((item) => (
-                        <div className="order-item" key={item.id}>
+                      {cartEntries.map(([key, item]) => {
+                        const discounted = getCouponPrice(item.id) !== null;
+                        const effectivePrice = getItemPrice(item);
+                        return (
+                        <div className="order-item" key={key}>
                           <div>
-                            <span className="order-item-name">{item.name}</span>
+                            <span className="order-item-name">
+                              {item.name}{item.variant ? ` — ${item.variant}` : ''}
+                              {discounted && <span className="coupon-tag">☕ coupon</span>}
+                            </span>
                             <span className="order-item-price">
-                              {(item.price * item.quantity).toFixed(2)} DT
+                              {discounted && (
+                                <span className="original-price">{(item.price * item.quantity).toFixed(2)}</span>
+                              )}
+                              {(effectivePrice * item.quantity).toFixed(2)} DT
                             </span>
                           </div>
                           <div className="item-controls">
-                            <button onClick={() => removeFromCart(item.id)}>−</button>
+                            <button onClick={() => removeFromCart(key)}>−</button>
                             <span className="item-qty">{item.quantity}</span>
-                            <button onClick={() => addToCart(item)}>+</button>
+                            <button onClick={() => addToCart(item, item.variant)}>+</button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
+
+                      {/* Coupon input */}
+                      <div className="coupon-section">
+                        {appliedCoupon ? (
+                          <div className="coupon-applied">
+                            <div className="coupon-applied-info">
+                              <i className="fas fa-tag" />
+                              <span>☕ <strong>{appliedCoupon.code}</strong> — Special coffee prices applied</span>
+                            </div>
+                            <button className="coupon-remove-btn" onClick={removeCoupon}>
+                              <i className="fas fa-times" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="coupon-input-row">
+                            <input
+                              type="text"
+                              placeholder="Coupon code"
+                              value={couponCode}
+                              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                              onKeyDown={(e) => { if (e.key === 'Enter') applyCoupon(); }}
+                            />
+                            <button
+                              className="coupon-apply-btn"
+                              onClick={applyCoupon}
+                              disabled={couponLoading || !couponCode.trim()}
+                            >
+                              {couponLoading ? <i className="fas fa-spinner fa-spin" /> : 'Apply'}
+                            </button>
+                          </div>
+                        )}
+                        {couponError && <p className="coupon-error">{couponError}</p>}
+                      </div>
+
+                      {savings > 0 && (
+                        <div className="cart-savings">
+                          <i className="fas fa-piggy-bank" /> You save {savings.toFixed(2)} DT with coupon!
+                        </div>
+                      )}
+
                       <div className="order-total">
                         <span>Total</span>
                         <span>{total.toFixed(2)} DT</span>
@@ -480,11 +617,11 @@ export default function OrderPage() {
                   </div>
                   <h3 style={{ marginTop: '1.5rem' }}>Items:</h3>
                   <ul>
-                    {orderStatus.items.map((i) => {
+                    {orderStatus.items.map((i, idx) => {
                       const menuItem = findMenuItem(i.id);
                       return (
-                        <li key={i.id}>
-                          {menuItem ? menuItem.name : 'Unknown'} × {i.quantity || 1}
+                        <li key={`${i.id}-${i.variant || idx}`}>
+                          {menuItem ? menuItem.name : 'Unknown'}{i.variant ? ` (${i.variant})` : ''} × {i.quantity || 1}
                         </li>
                       );
                     })}
@@ -495,7 +632,11 @@ export default function OrderPage() {
               <div className="status-actions">
                 <button
                   className="btn-secondary"
-                  onClick={() => fetchPastOrders(name.trim())}
+                  onClick={() => {
+                    setTrackingName(name.trim());
+                    setActiveTab('tracking');
+                    fetchPastOrders(name.trim());
+                  }}
                 >
                   <i className="fas fa-history" /> View All My Orders
                 </button>
@@ -503,28 +644,131 @@ export default function OrderPage() {
                   <i className="fas fa-plus" /> Make Another Order
                 </button>
               </div>
-
-              {pastOrders.length > 0 && (
-                <div className="past-orders-section">
-                  <h3>Your Past Orders</h3>
-                  {pastOrders.map((order) => (
-                    <div className="past-order" key={order.id}>
-                      <p>
-                        <strong>Order #{order.id}</strong> —{' '}
-                        {getStatusBadge(order.status)}
-                      </p>
-                      <p>
-                        📍 {order.location} · Table {order.table} ·{' '}
-                        {order.elapsedMinutes} min
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         )}
+          </>
+        ) : (
+          /* ==================== MY ORDERS / TRACKING TAB ==================== */
+          <div className="tracking-section">
+            <div className="card">
+              <h2>
+                <i className="fas fa-receipt" style={{ marginRight: '1rem', color: '#c08a5d' }} />
+                Track Your Orders
+              </h2>
+              <p style={{ fontSize: '1.4rem', color: '#888', marginBottom: '1.5rem' }}>
+                Enter your name to see your orders and their status
+              </p>
+              <div className="tracking-search">
+                <input
+                  type="text"
+                  placeholder="Enter your name..."
+                  value={trackingName}
+                  onChange={(e) => setTrackingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && trackingName.trim()) {
+                      fetchPastOrders(trackingName.trim());
+                    }
+                  }}
+                />
+                <button
+                  className="btn-primary"
+                  onClick={() => fetchPastOrders(trackingName.trim())}
+                  disabled={!trackingName.trim()}
+                >
+                  <i className="fas fa-search" /> Search
+                </button>
+              </div>
+            </div>
+
+            {pastOrders.length > 0 ? (
+              <div className="tracking-orders">
+                {pastOrders.map((order) => (
+                  <div className="card tracking-order-card" key={order.id}>
+                    <div className="tracking-order-header">
+                      <div>
+                        <h3>Order #{order.id}</h3>
+                        <p className="tracking-order-meta">
+                          📍 {order.location} · Table {order.table} · {order.elapsedMinutes} min ago
+                        </p>
+                      </div>
+                      {getStatusBadge(order.status)}
+                    </div>
+                    <div className="tracking-order-items">
+                      {order.items.map((item, idx) => {
+                        const menuItem = findMenuItem(item.id);
+                        return (
+                          <div className="tracking-item" key={`${item.id}-${item.variant || idx}`}>
+                            <span>{menuItem ? menuItem.name : `Item #${item.id}`}{item.variant ? ` (${item.variant})` : ''}</span>
+                            <span>× {item.quantity || 1}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="tracking-order-progress">
+                      <div className={`progress-step ${['In List', 'Preparing', 'Ready'].includes(order.status) ? 'active' : ''}`}>
+                        <i className="fas fa-clipboard-list" />
+                        <span>In List</span>
+                      </div>
+                      <div className="progress-line" />
+                      <div className={`progress-step ${['Preparing', 'Ready'].includes(order.status) ? 'active' : ''}`}>
+                        <i className="fas fa-fire" />
+                        <span>Preparing</span>
+                      </div>
+                      <div className="progress-line" />
+                      <div className={`progress-step ${order.status === 'Ready' ? 'active' : ''}`}>
+                        <i className="fas fa-check-circle" />
+                        <span>Ready</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : trackingName.trim() ? (
+              <div className="card tracking-empty">
+                <i className="fas fa-search" style={{ fontSize: '4rem', color: '#e2d6cf', marginBottom: '1rem' }} />
+                <h3>No Orders Found</h3>
+                <p>No orders found for "{trackingName}". Make sure you use the same name you ordered with.</p>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
+
+      {/* Espresso Variant Picker Modal */}
+      {variantPicker && (
+        <div className="variant-overlay" onClick={() => setVariantPicker(null)}>
+          <div className="variant-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="variant-close" onClick={() => setVariantPicker(null)}>
+              <i className="fas fa-times" />
+            </button>
+            <div className="variant-header">
+              <img src={variantPicker.image} alt={variantPicker.name} className="variant-img" />
+              <h3>{variantPicker.name}</h3>
+              <p>Choose your espresso style</p>
+            </div>
+            <div className="variant-options">
+              {ESPRESSO_VARIANTS.map((v) => (
+                <button
+                  key={v}
+                  className="variant-btn"
+                  onClick={() => {
+                    addToCart(variantPicker, v);
+                    setVariantPicker(null);
+                  }}
+                >
+                  <span className="variant-name">{v}</span>
+                  <span className="variant-desc">
+                    {v === 'Serrée' && 'Strong & short'}
+                    {v === 'Normale' && 'Classic balance'}
+                    {v === 'Allongée' && 'Longer & lighter'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

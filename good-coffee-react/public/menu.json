@@ -1,14 +1,5 @@
 [
   {
-    "category": "Breakfast",
-    "items": [
-      { "id": 1, "name": "Breakfast Mini", "price": 6.5, "image": "images/breakfast/mini.jpg", "description": "Coffee, croissant or cake, orange jus." },
-      { "id": 2, "name": "Breakfast Medium", "price": 7.5, "image": "images/breakfast/medium.jpg", "description": "Coffee, croissant or cake, orange or strawberry jus, 0.5L water." },
-      { "id": 3, "name": "Breakfast Maximum", "price": 9, "image": "images/breakfast/maximum.jpg", "description": "Coffee, pastry, jus, 1L water, yaourt, honey, chocolate." },
-      { "id": 4, "name": "Breakfast Duo", "price": 25, "image": "images/breakfast/duo.jpg", "description": "Breakfast Maximum for two persons." }
-    ]
-  },
-  {
     "category": "Coffee & Espresso",
     "items": [
       { "id": 5, "name": "Espresso", "price": 2.5, "image": "images/coffee/espresso.jpg", "description": "Strong and bold pure coffee shot." },
@@ -16,6 +7,15 @@
       { "id": 7, "name": "Americano", "price": 2.8, "image": "images/coffee/americano.jpg", "description": "Strong and bold and long coffee." },
       { "id": 8, "name": "Latte", "price": 3, "image": "images/coffee/latte.jpg", "description": "Smooth blend of espresso and steamed milk." },
       { "id": 9, "name": "Mocha", "price": 5.5, "image": "images/coffee/mocha.jpg", "description": "Chocolate-infused coffee delight." }
+    ]
+  },
+  {
+    "category": "Breakfast",
+    "items": [
+      { "id": 1, "name": "Breakfast Mini", "price": 6.5, "image": "images/breakfast/mini.jpg", "description": "Coffee, croissant or cake, orange jus." },
+      { "id": 2, "name": "Breakfast Medium", "price": 7.5, "image": "images/breakfast/medium.jpg", "description": "Coffee, croissant or cake, orange or strawberry jus, 0.5L water." },
+      { "id": 3, "name": "Breakfast Maximum", "price": 9, "image": "images/breakfast/maximum.jpg", "description": "Coffee, pastry, jus, 1L water, yaourt, honey, chocolate." },
+      { "id": 4, "name": "Breakfast Duo", "price": 25, "image": "images/breakfast/duo.jpg", "description": "Breakfast Maximum for two persons." }
     ]
   },
   {
@@ -55,6 +55,13 @@
       { "id": 26, "name": "Iced Cappuccino", "price": 4.5, "image": "images/iced/cappuccino.jpg", "description": "Creamy, frothy, and refreshing." },
       { "id": 27, "name": "Iced Americano", "price": 5.5, "image": "images/iced/americano.jpg", "description": "Smooth, light iced coffee." },
       { "id": 28, "name": "Iced Latte", "price": 6, "image": "images/iced/latte.jpg", "description": "Silky milk with a coffee touch." }
+    ]
+  },
+  {
+    "category": "Water",
+    "items": [
+      { "id": 29, "name": "Water 0.5L", "price": 1.5, "image": "images/water/0.5l.jpg", "description": "Fresh mineral water." },
+      { "id": 30, "name": "Water 1.0L", "price": 2.5, "image": "images/water/1.0l.jpg", "description": "Large bottle mineral water." }
     ]
   }
 ]

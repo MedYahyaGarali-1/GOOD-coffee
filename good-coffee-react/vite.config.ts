@@ -11,9 +11,15 @@ export default defineConfig({
     }),
   ],
   server: {
+    host: true,
     proxy: {
-      '/orders': 'http://localhost:3001',
-      '/orders-by-name': 'http://localhost:3001',
+      '/orders': 'http://127.0.0.1:3001',
+      '/orders-by-name': 'http://127.0.0.1:3001',
+      '/admin/login': 'http://127.0.0.1:3001',
+      '/admin/coupons': 'http://127.0.0.1:3001',
+      '/admin/menu': 'http://127.0.0.1:3001',
+      '/admin/reports': 'http://127.0.0.1:3001',
+      '/coupons': 'http://127.0.0.1:3001',
     },
   },
 })

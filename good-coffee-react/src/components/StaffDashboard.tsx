@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { MenuCategory, MenuItem, Order } from '../types';
 
 type FilterTab = 'all' | 'In List' | 'Preparing' | 'Ready';
@@ -8,6 +8,52 @@ export default function StaffDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<FilterTab>('all');
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const knownOrderIds = useRef<Set<number>>(new Set());
+  const isFirstLoad = useRef(true);
+
+  // Request browser notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Send a Windows toast notification
+  const sendWindowsNotification = useCallback((order: Order, itemNames: string) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification(`🔔 New Order #${order.id}`, {
+        body: `${order.name} · ${order.location} · Table ${order.table}\n${itemNames}`,
+        icon: '/logo4.png',
+        tag: `order-${order.id}`,
+        requireInteraction: true, // stays until dismissed
+      });
+      // Focus the staff tab when clicked
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    }
+  }, []);
+
+  // Beep sound (plays if speaker is connected)
+  const playNotificationSound = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      [0, 0.25, 0.5].forEach((delay) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        osc.type = 'sine';
+        gain.gain.value = 0.5;
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.15);
+      });
+    } catch {
+      /* Audio not available */
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/menu.json')
@@ -16,31 +62,54 @@ export default function StaffDashboard() {
       .catch(() => console.error('Failed to fetch menu'));
   }, []);
 
+  const findMenuItem = useCallback((id: number): MenuItem | undefined => {
+    for (const cat of menuItems) {
+      const found = cat.items.find((item) => item.id === id);
+      if (found) return found;
+    }
+    return undefined;
+  }, [menuItems]);
+
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch('/orders');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Order[] = await res.json();
+
+      // Detect new orders (not on first load)
+      if (!isFirstLoad.current) {
+        for (const order of data) {
+          if (!knownOrderIds.current.has(order.id) && order.status === 'In List') {
+            // Build item names for the notification
+            const itemNames = order.items
+              .map((i) => {
+                const mi = findMenuItem(i.id);
+                return `${mi ? mi.name : 'Item'} ×${i.quantity || 1}`;
+              })
+              .join(', ');
+            sendWindowsNotification(order, itemNames);
+            playNotificationSound();
+            break; // one at a time
+          }
+        }
+      }
+
+      // Update known IDs
+      knownOrderIds.current = new Set(data.map((o) => o.id));
+      isFirstLoad.current = false;
+
       setOrders(data);
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching orders:', err);
     }
-  }, []);
+  }, [findMenuItem, sendWindowsNotification, playNotificationSound]);
 
   useEffect(() => {
     fetchOrders();
     const interval = setInterval(fetchOrders, 5000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
-
-  const findMenuItem = (id: number): MenuItem | undefined => {
-    for (const cat of menuItems) {
-      const found = cat.items.find((item) => item.id === id);
-      if (found) return found;
-    }
-    return undefined;
-  };
 
   const markPreparing = async (oid: number) => {
     try {
@@ -189,11 +258,12 @@ export default function StaffDashboard() {
               <div className="order-card-items">
                 <h4>Items</h4>
                 <div className="items-chips">
-                  {order.items.map((i) => {
+                  {order.items.map((i, idx) => {
                     const menuItem = findMenuItem(i.id);
                     return (
-                      <span className="item-chip" key={i.id}>
+                      <span className="item-chip" key={`${i.id}-${i.variant || idx}`}>
                         {menuItem ? menuItem.name : 'Unknown'}
+                        {i.variant ? ` (${i.variant})` : ''}
                         <span className="chip-qty">×{i.quantity || 1}</span>
                       </span>
                     );

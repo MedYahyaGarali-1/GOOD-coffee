@@ -14,10 +14,12 @@ export interface MenuCategory {
 export interface OrderItem {
   id: number;
   quantity: number;
+  variant?: string;
 }
 
 export interface CartItem extends MenuItem {
   quantity: number;
+  variant?: string;
 }
 
 export interface Order {
@@ -44,4 +46,23 @@ export interface MenuItemDisplay {
   image: string;
   description: string;
   price: string;
+}
+
+// Admin types
+export interface Coupon {
+  id: number;
+  code: string;
+  client_name: string;
+  discount_percent: number;
+  fixed_price: number | null;
+  used: boolean;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface ReportData {
+  period: string;
+  total_orders: number;
+  total_revenue: number;
+  orders: { name: string; count: number; revenue: number }[];
 }

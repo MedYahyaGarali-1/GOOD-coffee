@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Good Coffee - QR Code</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f5f0eb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .qr-card {
+      background: white;
+      border-radius: 20px;
+      padding: 3rem 2.5rem;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      max-width: 400px;
+      width: 100%;
+      border: 3px solid #d4a574;
+    }
+
+    .logo {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #3a2d28;
+      margin-bottom: 0.5rem;
+      letter-spacing: 2px;
+    }
+
+    .logo span {
+      color: #d4a574;
+    }
+
+    .subtitle {
+      color: #8b7355;
+      font-size: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .qr-container {
+      background: white;
+      padding: 1rem;
+      display: inline-block;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+    }
+
+    .qr-container img {
+      width: 220px;
+      height: 220px;
+    }
+
+    .instruction {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #3a2d28;
+      margin-bottom: 0.5rem;
+    }
+
+    .instruction-sub {
+      color: #8b7355;
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .wifi-info {
+      background: #faf6f2;
+      border-radius: 10px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      color: #6b5b4a;
+    }
+
+    .wifi-info strong {
+      color: #3a2d28;
+    }
+
+    .url {
+      font-family: monospace;
+      background: #f0ebe5;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #d4a574;
+      font-weight: 600;
+      display: inline-block;
+      margin-top: 0.5rem;
+    }
+
+    /* Print styles */
+    @media print {
+      body { background: white; padding: 0; }
+      .qr-card { 
+        box-shadow: none; 
+        border: 2px solid #d4a574;
+        page-break-inside: avoid;
+      }
+      .no-print { display: none; }
+    }
+
+    .print-btn {
+      margin-top: 1.5rem;
+      background: #d4a574;
+      color: white;
+      border: none;
+      padding: 0.8rem 2rem;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .print-btn:hover {
+      background: #c4955a;
+    }
+
+    .edit-section {
+      margin-bottom: 2rem;
+      padding: 1rem;
+      background: #fff8f0;
+      border-radius: 10px;
+      border: 1px dashed #d4a574;
+    }
+
+    .edit-section label {
+      font-weight: 600;
+      color: #3a2d28;
+      font-size: 0.9rem;
+    }
+
+    .edit-section input {
+      width: 100%;
+      padding: 0.6rem;
+      margin-top: 0.4rem;
+      border: 2px solid #e8ddd3;
+      border-radius: 8px;
+      font-size: 1rem;
+      text-align: center;
+      font-family: monospace;
+    }
+
+    .edit-section button {
+      margin-top: 0.6rem;
+      background: #3a2d28;
+      color: white;
+      border: none;
+      padding: 0.5rem 1.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="qr-card">
+    <div class="logo">GOOD <span>COFFEE</span></div>
+    <div class="subtitle">☕ Order from your phone</div>
+
+    <div class="edit-section no-print">
+      <label>Enter your coffee PC's IP address:</label>
+      <input type="text" id="ipInput" value="196.178.120.11" placeholder="e.g. 196.178.120.11">
+      <button onclick="generateQR()">Generate QR Code</button>
+    </div>
+
+    <div class="qr-container">
+      <img id="qrImage" src="" alt="QR Code">
+    </div>
+
+    <div class="instruction">📱 Scan to Order</div>
+    <div class="instruction-sub">Point your phone camera at the QR code</div>
+
+    <div class="wifi-info">
+      <strong>📶 Connect to café WiFi first</strong><br>
+      <span class="url" id="urlDisplay">http://196.178.120.11:3001/order</span>
+    </div>
+
+    <button class="print-btn no-print" onclick="window.print()">🖨️ Print this card</button>
+  </div>
+
+  <script>
+    function generateQR() {
+      const ip = document.getElementById('ipInput').value.trim();
+      const url = `http://${ip}:3001/order`;
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+      
+      document.getElementById('qrImage').src = qrApiUrl;
+      document.getElementById('urlDisplay').textContent = url;
+    }
+
+    // Generate on page load
+    generateQR();
+  </script>
+
+</body>
+</html>
