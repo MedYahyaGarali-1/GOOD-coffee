@@ -33,7 +33,13 @@ export default function AdminDashboard() {
 
   // Coupons
   const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [newCoupon, setNewCoupon] = useState({ client_name: '', expires_days: 30 });
+  const [newCoupon, setNewCoupon] = useState<{
+    client_name: string;
+    expires_days: number;
+    item_prices: Record<string, number>;
+  }>({ client_name: '', expires_days: 30, item_prices: {} });
+  const [newCouponItemId, setNewCouponItemId] = useState('');
+  const [newCouponItemPrice, setNewCouponItemPrice] = useState('');
 
   // Menu
   const [editMenu, setEditMenu] = useState<MenuCategory[] | null>(null);
@@ -148,7 +154,9 @@ export default function AdminDashboard() {
         body: JSON.stringify(newCoupon),
       });
       if (res.ok) {
-        setNewCoupon({ client_name: '', expires_days: 30 });
+        setNewCoupon({ client_name: '', expires_days: 30, item_prices: {} });
+        setNewCouponItemId('');
+        setNewCouponItemPrice('');
         fetchCoupons();
       }
     } catch {
@@ -433,10 +441,10 @@ export default function AdminDashboard() {
           <>
             <div className="report-card">
               <h3>
-                <i className="fas fa-plus-circle" /> Create Coffee Coupon
+                <i className="fas fa-plus-circle" /> Create Coupon
               </h3>
               <p style={{ color: '#aaa', fontSize: '1.3rem', marginBottom: '1.5rem' }}>
-                ☕ Coupons unlock special coffee prices: Espresso 2DT · Cappuccino 2.4DT · Americano 2.5DT · Latte 2.5DT
+                Choose which products get special prices for this coupon.
               </p>
               <div className="coupon-form-grid">
                 <div className="form-group">
@@ -458,11 +466,91 @@ export default function AdminDashboard() {
                   />
                 </div>
               </div>
+
+              {/* Item prices for this coupon */}
+              <div style={{ marginTop: '2rem' }}>
+                <label style={{ fontWeight: 700, fontSize: '1.4rem', color: '#4b3832', display: 'block', marginBottom: '1rem' }}>
+                  <i className="fas fa-tags" /> Coupon Prices
+                </label>
+
+                {Object.keys(newCoupon.item_prices).length > 0 && (
+                  <div className="hh-prices-list" style={{ marginBottom: '1.5rem' }}>
+                    {Object.entries(newCoupon.item_prices).map(([itemId, price]) => (
+                      <div className="hh-price-row" key={itemId}>
+                        <span className="hh-item-name">{findMenuItemName(itemId)}</span>
+                        <div className="hh-price-input">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={price}
+                            onChange={(e) => setNewCoupon({
+                              ...newCoupon,
+                              item_prices: { ...newCoupon.item_prices, [itemId]: parseFloat(e.target.value) || 0 }
+                            })}
+                          />
+                          <span>DT</span>
+                        </div>
+                        <button className="coupon-delete" onClick={() => {
+                          const updated = { ...newCoupon.item_prices };
+                          delete updated[itemId];
+                          setNewCoupon({ ...newCoupon, item_prices: updated });
+                        }}>
+                          <i className="fas fa-trash" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add item to coupon */}
+                <div className="hh-add-row">
+                  <select
+                    value={newCouponItemId}
+                    onChange={(e) => setNewCouponItemId(e.target.value)}
+                  >
+                    <option value="">Select item...</option>
+                    {menuItems.flatMap((cat) =>
+                      cat.items
+                        .filter((item) => !newCoupon.item_prices[String(item.id)])
+                        .map((item) => (
+                          <option key={item.id} value={String(item.id)}>
+                            {item.name} ({item.price} DT)
+                          </option>
+                        ))
+                    )}
+                  </select>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    placeholder="Coupon price"
+                    value={newCouponItemPrice}
+                    onChange={(e) => setNewCouponItemPrice(e.target.value)}
+                    style={{ maxWidth: '12rem' }}
+                  />
+                  <button
+                    className="btn-primary"
+                    disabled={!newCouponItemId || !newCouponItemPrice}
+                    onClick={() => {
+                      setNewCoupon({
+                        ...newCoupon,
+                        item_prices: { ...newCoupon.item_prices, [newCouponItemId]: parseFloat(newCouponItemPrice) }
+                      });
+                      setNewCouponItemId('');
+                      setNewCouponItemPrice('');
+                    }}
+                  >
+                    <i className="fas fa-plus" /> Add
+                  </button>
+                </div>
+              </div>
+
               <button
                 className="btn-primary"
                 onClick={createCoupon}
-                disabled={!newCoupon.client_name.trim()}
-                style={{ marginTop: '1.5rem' }}
+                disabled={!newCoupon.client_name.trim() || Object.keys(newCoupon.item_prices).length === 0}
+                style={{ marginTop: '2rem', width: '100%', justifyContent: 'center' }}
               >
                 <i className="fas fa-plus" /> Create Coupon
               </button>
@@ -474,7 +562,7 @@ export default function AdminDashboard() {
                 <div className="admin-empty">
                   <i className="fas fa-ticket-alt" />
                   <h3>No Coupons Yet</h3>
-                  <p>Create your first coffee coupon above.</p>
+                  <p>Create your first coupon above.</p>
                 </div>
               ) : (
                 coupons.map((coupon) => (
@@ -484,7 +572,17 @@ export default function AdminDashboard() {
                       <p>
                         <strong>{coupon.client_name}</strong>
                       </p>
-                      <p>☕ Special coffee prices unlocked</p>
+                      {coupon.item_prices && Object.keys(coupon.item_prices).length > 0 ? (
+                        <div className="coupon-items-list">
+                          {Object.entries(coupon.item_prices).map(([itemId, price]) => (
+                            <span className="coupon-item-chip" key={itemId}>
+                              {findMenuItemName(itemId)}: {price} DT
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ color: '#999', fontSize: '1.2rem' }}>No special prices set</p>
+                      )}
                       <p className="coupon-meta">
                         {coupon.used ? '❌ Used' : '✅ Active'} · Expires{' '}
                         {new Date(coupon.expires_at).toLocaleDateString()}

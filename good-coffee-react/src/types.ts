@@ -55,6 +55,7 @@ export interface Coupon {
   client_name: string;
   discount_percent: number;
   fixed_price: number | null;
+  item_prices: Record<string, number>;
   used: boolean;
   created_at: string;
   expires_at: string;

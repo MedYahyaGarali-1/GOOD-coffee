@@ -336,24 +336,17 @@ app.get('/orders-by-name/:name', async (req, res) => {
   }
 });
 
-// Coffee coupon prices — per-item fixed prices when a coupon is applied
-const COFFEE_COUPON_PRICES = {
-  5: 2,     // Espresso: 2.5 → 2 DT
-  6: 2.4,   // Cappuccino: 2.8 → 2.4 DT
-  7: 2.5,   // Americano: 2.8 → 2.5 DT
-  8: 2.5,   // Latte: 3 → 2.5 DT
-  // 9 (Mocha) not included — stays at normal price
-};
-
 // Validate coupon (public — for order page)
 app.get('/coupons/validate/:code', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT code, client_name, discount_percent, fixed_price FROM coupons WHERE UPPER(code) = UPPER($1) AND used = FALSE AND expires_at > NOW()`,
+      `SELECT code, client_name, discount_percent, fixed_price, item_prices FROM coupons WHERE UPPER(code) = UPPER($1) AND used = FALSE AND expires_at > NOW()`,
       [req.params.code]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Invalid or expired coupon' });
-    res.json({ ...result.rows[0], applies_to: 'coffee_only', coffee_coupon_prices: COFFEE_COUPON_PRICES });
+    const coupon = result.rows[0];
+    // Return item_prices as coffee_coupon_prices for backward compatibility
+    res.json({ ...coupon, coffee_coupon_prices: coupon.item_prices || {} });
   } catch (err) {
     res.status(500).json({ error: 'Failed to validate coupon' });
   }
@@ -414,7 +407,7 @@ app.get('/admin/coupons', requireAdmin, async (req, res) => {
 
 // Create coupon
 app.post('/admin/coupons', requireAdmin, async (req, res) => {
-  const { client_name, discount_percent, fixed_price, expires_days } = req.body;
+  const { client_name, discount_percent, fixed_price, expires_days, item_prices } = req.body;
   if (!client_name) return res.status(400).json({ error: 'Client name required' });
 
   // Generate unique code: GC-XXXX
@@ -423,9 +416,9 @@ app.post('/admin/coupons', requireAdmin, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO coupons (code, client_name, discount_percent, fixed_price, expires_at) 
-       VALUES ($1, $2, $3, $4, NOW() + $5::interval) RETURNING *`,
-      [code, client_name, discount_percent || 0, fixed_price || null, `${expiresDays} days`]
+      `INSERT INTO coupons (code, client_name, discount_percent, fixed_price, item_prices, expires_at) 
+       VALUES ($1, $2, $3, $4, $5, NOW() + $6::interval) RETURNING *`,
+      [code, client_name, discount_percent || 0, fixed_price || null, JSON.stringify(item_prices || {}), `${expiresDays} days`]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -592,6 +585,7 @@ async function start() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_id INTEGER;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_percent NUMERIC DEFAULT 0;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS fixed_price NUMERIC;
+      ALTER TABLE coupons ADD COLUMN IF NOT EXISTS item_prices JSONB DEFAULT '{}';
     `).catch(() => {});
 
     client.release();
