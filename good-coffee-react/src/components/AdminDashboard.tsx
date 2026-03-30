@@ -9,7 +9,16 @@ interface ReportData {
   topCustomers: { name: string; order_count: string }[];
 }
 
-type Tab = 'reports' | 'coupons' | 'menu';
+type Tab = 'reports' | 'coupons' | 'menu' | 'happyhour';
+
+interface HappyHourConfig {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+  prices: Record<string, number>;
+  label: string;
+  active: boolean;
+}
 
 export default function AdminDashboard() {
   const [pin, setPin] = useState('');
@@ -29,6 +38,10 @@ export default function AdminDashboard() {
   // Menu
   const [editMenu, setEditMenu] = useState<MenuCategory[] | null>(null);
   const [menuSaved, setMenuSaved] = useState(false);
+
+  // Happy Hour
+  const [happyHour, setHappyHour] = useState<HappyHourConfig | null>(null);
+  const [hhSaved, setHhSaved] = useState(false);
 
   // Menu item lookup for reports
   const [menuItems, setMenuItems] = useState<MenuCategory[]>([]);
@@ -106,13 +119,24 @@ export default function AdminDashboard() {
     }
   }, [headers]);
 
+  // Fetch happy hour config
+  const fetchHappyHour = useCallback(async () => {
+    try {
+      const res = await fetch('/admin/happy-hour', { headers: headers() });
+      if (res.ok) setHappyHour(await res.json());
+    } catch {
+      /* ignore */
+    }
+  }, [headers]);
+
   // Auto-fetch on tab change
   useEffect(() => {
     if (!authenticated) return;
     if (tab === 'reports') fetchReports();
     if (tab === 'coupons') fetchCoupons();
     if (tab === 'menu') fetchMenu();
-  }, [authenticated, tab, fetchReports, fetchCoupons, fetchMenu]);
+    if (tab === 'happyhour') fetchHappyHour();
+  }, [authenticated, tab, fetchReports, fetchCoupons, fetchMenu, fetchHappyHour]);
 
   // Create coupon
   const createCoupon = async () => {
@@ -160,6 +184,43 @@ export default function AdminDashboard() {
       /* ignore */
     }
   };
+
+  // Save happy hour config
+  const saveHappyHour = async (updates: Partial<HappyHourConfig>) => {
+    try {
+      const res = await fetch('/admin/happy-hour', {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        setHappyHour(await res.json());
+        setHhSaved(true);
+        setTimeout(() => setHhSaved(false), 2000);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Update happy hour price for an item
+  const updateHHPrice = (itemId: string, price: number) => {
+    if (!happyHour) return;
+    const newPrices = { ...happyHour.prices, [itemId]: price };
+    setHappyHour({ ...happyHour, prices: newPrices });
+  };
+
+  // Remove happy hour price for an item
+  const removeHHPrice = (itemId: string) => {
+    if (!happyHour) return;
+    const newPrices = { ...happyHour.prices };
+    delete newPrices[itemId];
+    setHappyHour({ ...happyHour, prices: newPrices });
+  };
+
+  // Add new item to happy hour
+  const [newHHItemId, setNewHHItemId] = useState('');
+  const [newHHItemPrice, setNewHHItemPrice] = useState('');
 
   // Update a menu item field
   const updateMenuItem = (catIdx: number, itemIdx: number, field: keyof MenuItem, value: string | number) => {
@@ -255,6 +316,9 @@ export default function AdminDashboard() {
         </button>
         <button className={`admin-tab ${tab === 'menu' ? 'active' : ''}`} onClick={() => setTab('menu')}>
           <i className="fas fa-utensils" /> Menu
+        </button>
+        <button className={`admin-tab ${tab === 'happyhour' ? 'active' : ''}`} onClick={() => setTab('happyhour')}>
+          <i className="fas fa-sun" /> Happy Hour
         </button>
       </div>
 
@@ -490,6 +554,162 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ))}
+          </>
+        )}
+
+        {/* ==================== HAPPY HOUR ==================== */}
+        {tab === 'happyhour' && happyHour && (
+          <>
+            {/* Status banner */}
+            <div className={`report-card hh-status-card ${happyHour.active ? 'hh-active' : ''}`}>
+              <div className="hh-status-header">
+                <div>
+                  <h3>
+                    <i className="fas fa-sun" /> {happyHour.label || 'Happy Hour'}
+                  </h3>
+                  <p className="hh-status-text">
+                    {happyHour.active
+                      ? '🟢 Currently ACTIVE — discounted prices are live!'
+                      : happyHour.enabled
+                      ? `⏰ Scheduled: ${happyHour.startHour}:00 – ${happyHour.endHour}:00`
+                      : '🔴 Disabled'}
+                  </p>
+                </div>
+                <label className="hh-toggle">
+                  <input
+                    type="checkbox"
+                    checked={happyHour.enabled}
+                    onChange={(e) => saveHappyHour({ ...happyHour, enabled: e.target.checked })}
+                  />
+                  <span className="hh-toggle-slider" />
+                </label>
+              </div>
+            </div>
+
+            {/* Schedule */}
+            <div className="report-card">
+              <h3><i className="fas fa-clock" /> Schedule</h3>
+              <div className="hh-schedule-row">
+                <div className="form-group">
+                  <label>Label</label>
+                  <input
+                    type="text"
+                    value={happyHour.label}
+                    onChange={(e) => setHappyHour({ ...happyHour, label: e.target.value })}
+                    placeholder="e.g. Happy Hour ☀️"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Start Hour</label>
+                  <select
+                    value={happyHour.startHour}
+                    onChange={(e) => setHappyHour({ ...happyHour, startHour: parseInt(e.target.value) })}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}:00</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>End Hour</label>
+                  <select
+                    value={happyHour.endHour}
+                    onChange={(e) => setHappyHour({ ...happyHour, endHour: parseInt(e.target.value) })}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>{i.toString().padStart(2, '0')}:00</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={() => saveHappyHour(happyHour)}
+                style={{ marginTop: '1.5rem' }}
+              >
+                <i className="fas fa-save" /> {hhSaved ? 'Saved ✓' : 'Save Schedule'}
+              </button>
+            </div>
+
+            {/* Prices */}
+            <div className="report-card">
+              <h3><i className="fas fa-tags" /> Happy Hour Prices</h3>
+              <p style={{ color: '#999', fontSize: '1.3rem', marginBottom: '1.5rem' }}>
+                Set discounted prices for items during happy hour. Only listed items get discounted.
+              </p>
+
+              {Object.entries(happyHour.prices).length > 0 ? (
+                <div className="hh-prices-list">
+                  {Object.entries(happyHour.prices).map(([itemId, price]) => (
+                    <div className="hh-price-row" key={itemId}>
+                      <span className="hh-item-name">{findMenuItemName(itemId)}</span>
+                      <div className="hh-price-input">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={price}
+                          onChange={(e) => updateHHPrice(itemId, parseFloat(e.target.value) || 0)}
+                        />
+                        <span>DT</span>
+                      </div>
+                      <button className="coupon-delete" onClick={() => removeHHPrice(itemId)}>
+                        <i className="fas fa-trash" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: '#ccc', fontStyle: 'italic', marginBottom: '1.5rem' }}>No items yet — add one below.</p>
+              )}
+
+              {/* Add item to happy hour */}
+              <div className="hh-add-row">
+                <select
+                  value={newHHItemId}
+                  onChange={(e) => setNewHHItemId(e.target.value)}
+                >
+                  <option value="">Select item...</option>
+                  {menuItems.flatMap((cat) =>
+                    cat.items
+                      .filter((item) => !happyHour.prices[String(item.id)])
+                      .map((item) => (
+                        <option key={item.id} value={String(item.id)}>
+                          {item.name} ({item.price} DT)
+                        </option>
+                      ))
+                  )}
+                </select>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="Price"
+                  value={newHHItemPrice}
+                  onChange={(e) => setNewHHItemPrice(e.target.value)}
+                  style={{ maxWidth: '10rem' }}
+                />
+                <button
+                  className="btn-primary"
+                  disabled={!newHHItemId || !newHHItemPrice}
+                  onClick={() => {
+                    updateHHPrice(newHHItemId, parseFloat(newHHItemPrice));
+                    setNewHHItemId('');
+                    setNewHHItemPrice('');
+                  }}
+                >
+                  <i className="fas fa-plus" /> Add
+                </button>
+              </div>
+
+              <button
+                className="btn-primary"
+                onClick={() => saveHappyHour({ prices: happyHour.prices })}
+                style={{ marginTop: '2rem', width: '100%', justifyContent: 'center' }}
+              >
+                <i className="fas fa-save" /> {hhSaved ? 'Saved ✓' : 'Save Prices'}
+              </button>
+            </div>
           </>
         )}
       </div>

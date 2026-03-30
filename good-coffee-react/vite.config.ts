@@ -19,6 +19,8 @@ export default defineConfig({
       '/admin/coupons': 'http://127.0.0.1:3001',
       '/admin/menu': 'http://127.0.0.1:3001',
       '/admin/reports': 'http://127.0.0.1:3001',
+      '/admin/happy-hour': 'http://127.0.0.1:3001',
+      '/happy-hour': 'http://127.0.0.1:3001',
       '/coupons': 'http://127.0.0.1:3001',
     },
   },

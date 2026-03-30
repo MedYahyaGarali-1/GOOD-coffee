@@ -35,6 +35,15 @@ export default function OrderPage() {
   const ESPRESSO_IDS = [5, 25]; // Espresso & Iced Espresso
   const ESPRESSO_VARIANTS = ['Serrée', 'Normale', 'Allongée'];
 
+  // Happy hour state
+  const [happyHour, setHappyHour] = useState<{
+    active: boolean;
+    label: string;
+    startHour: number;
+    endHour: number;
+    prices: Record<string, number>;
+  } | null>(null);
+
   // Fetch menu on mount — open first category by default
   useEffect(() => {
     fetch('/menu.json')
@@ -46,6 +55,23 @@ export default function OrderPage() {
         }
       })
       .catch(() => alert('Failed to load menu'));
+
+    // Fetch happy hour status
+    fetch('/happy-hour')
+      .then((res) => res.json())
+      .then((data) => setHappyHour(data))
+      .catch(() => {});
+  }, []);
+
+  // Refresh happy hour every 60s (in case it activates/deactivates while ordering)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch('/happy-hour')
+        .then((r) => r.json())
+        .then((data) => setHappyHour(data))
+        .catch(() => {});
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Auto-refresh past orders when on tracking tab
@@ -143,14 +169,26 @@ export default function OrderPage() {
     return p !== undefined ? p : null;
   };
 
+  // Happy hour price lookup
+  const getHappyHourPrice = (id: number): number | null => {
+    if (!happyHour || !happyHour.active) return null;
+    const p = happyHour.prices[String(id)];
+    return p !== undefined ? p : null;
+  };
+
   const getItemPrice = (item: CartItem) => {
+    // Coupon takes priority over happy hour
     const couponPrice = getCouponPrice(item.id);
-    return couponPrice !== null ? couponPrice : item.price;
+    if (couponPrice !== null) return couponPrice;
+    // Then happy hour
+    const hhPrice = getHappyHourPrice(item.id);
+    if (hhPrice !== null) return hhPrice;
+    return item.price;
   };
 
   const total = cartItems.reduce((sum, item) => sum + getItemPrice(item) * item.quantity, 0);
-  const totalWithoutCoupon = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const savings = totalWithoutCoupon - total;
+  const totalWithoutDiscount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const savings = totalWithoutDiscount - total;
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   const applyCoupon = async () => {
@@ -246,6 +284,22 @@ export default function OrderPage() {
           </Link>
         </div>
       </div>
+
+      {/* Happy Hour banner */}
+      {happyHour?.active && (
+        <div className="happy-hour-banner">
+          <div className="happy-hour-content">
+            <span className="hh-icon">☀️</span>
+            <div>
+              <strong>{happyHour.label}</strong>
+              <span className="hh-time">
+                {happyHour.startHour}:00 – {happyHour.endHour}:00
+              </span>
+            </div>
+            <span className="hh-badge">Special Prices!</span>
+          </div>
+        </div>
+      )}
 
       {/* Tab navigation */}
       <div className="order-tabs">
@@ -369,9 +423,11 @@ export default function OrderPage() {
                           const totalQty = espresso ? totalQtyForId(item.id) : 0;
                           const inCart = espresso ? totalQty > 0 : !!cart[cartKey(item.id)];
                           const simpleEntry = cart[cartKey(item.id)]; // for non-espresso qty
+                          const hhPrice = getHappyHourPrice(item.id);
+                          const hasDiscount = hhPrice !== null;
                           return (
                             <div
-                              className={`menu-item ${inCart ? 'in-cart' : ''}`}
+                              className={`menu-item ${inCart ? 'in-cart' : ''}${hasDiscount ? ' hh-item' : ''}`}
                               key={item.id}
                             >
                               <div className="menu-item-img-wrap">
@@ -391,7 +447,11 @@ export default function OrderPage() {
                                 </div>
                                 <div className="menu-item-footer">
                                   <span className="menu-item-price">
-                                    {item.price.toFixed(1)} DT
+                                    {hasDiscount && (
+                                      <span className="menu-item-original-price">{item.price.toFixed(1)}</span>
+                                    )}
+                                    {hasDiscount ? `${hhPrice.toFixed(1)} DT` : `${item.price.toFixed(1)} DT`}
+                                    {hasDiscount && <span className="hh-tag">☀️</span>}
                                   </span>
                                   {espresso ? (
                                     /* Espresso: always show add btn (opens variant picker) */
@@ -477,17 +537,20 @@ export default function OrderPage() {
                   ) : (
                     <>
                       {cartEntries.map(([key, item]) => {
-                        const discounted = getCouponPrice(item.id) !== null;
+                        const hasCoupon = getCouponPrice(item.id) !== null;
+                        const hasHH = !hasCoupon && getHappyHourPrice(item.id) !== null;
                         const effectivePrice = getItemPrice(item);
+                        const showDiscount = hasCoupon || hasHH;
                         return (
                         <div className="order-item" key={key}>
                           <div>
                             <span className="order-item-name">
                               {item.name}{item.variant ? ` — ${item.variant}` : ''}
-                              {discounted && <span className="coupon-tag">☕ coupon</span>}
+                              {hasCoupon && <span className="coupon-tag">☕ coupon</span>}
+                              {hasHH && <span className="coupon-tag hh-coupon-tag">☀️ happy hour</span>}
                             </span>
                             <span className="order-item-price">
-                              {discounted && (
+                              {showDiscount && (
                                 <span className="original-price">{(item.price * item.quantity).toFixed(2)}</span>
                               )}
                               {(effectivePrice * item.quantity).toFixed(2)} DT

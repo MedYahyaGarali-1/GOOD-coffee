@@ -9,6 +9,39 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ==================== RATE LIMITING & ANTI-SPAM ====================
+const orderRateMap = new Map();   // IP → { count, firstAt }
+const ORDER_RATE_WINDOW = 60000;  // 1 minute window
+const ORDER_RATE_MAX = 3;         // max 3 orders per minute per IP
+const MAX_ITEMS_PER_ORDER = 20;   // max 20 items per order
+const MAX_QTY_PER_ITEM = 10;     // max 10 of same item
+
+function rateLimit(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const now = Date.now();
+  const entry = orderRateMap.get(ip);
+
+  if (!entry || now - entry.firstAt > ORDER_RATE_WINDOW) {
+    orderRateMap.set(ip, { count: 1, firstAt: now });
+    return next();
+  }
+
+  if (entry.count >= ORDER_RATE_MAX) {
+    return res.status(429).json({ error: 'Too many orders. Please wait a minute.' });
+  }
+
+  entry.count++;
+  return next();
+}
+
+// Clean up rate limit map every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of orderRateMap) {
+    if (now - entry.firstAt > ORDER_RATE_WINDOW) orderRateMap.delete(ip);
+  }
+}, 300000);
+
 // Serve menu.json and other assets from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -69,6 +102,51 @@ async function notifyTelegram(orderId, name, location, table, items) {
   }
 }
 
+// ==================== HAPPY HOUR SYSTEM ====================
+const HAPPY_HOUR_FILE = path.join(__dirname, 'happy-hour.json');
+
+// Default happy hour config
+const DEFAULT_HAPPY_HOUR = {
+  enabled: true,
+  startHour: 5,   // 5:00 AM
+  endHour: 10,    // 10:00 AM
+  prices: {
+    5: 2,     // Espresso: 2.5 → 2 DT
+    6: 2.4,   // Cappuccino: 2.8 → 2.4 DT
+    7: 2.5,   // Americano: 2.8 → 2.5 DT
+    8: 2.5,   // Latte: 3 → 2.5 DT
+  },
+  label: 'Happy Hour ☀️',
+};
+
+function loadHappyHour() {
+  try {
+    if (fs.existsSync(HAPPY_HOUR_FILE)) {
+      return JSON.parse(fs.readFileSync(HAPPY_HOUR_FILE, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_HAPPY_HOUR };
+}
+
+function saveHappyHour(config) {
+  fs.writeFileSync(HAPPY_HOUR_FILE, JSON.stringify(config, null, 2));
+}
+
+function isHappyHourActive() {
+  const config = loadHappyHour();
+  if (!config.enabled) return { active: false, config };
+  const hour = new Date().getHours();
+  const active = hour >= config.startHour && hour < config.endHour;
+  return { active, config };
+}
+
+function getHappyHourPrice(itemId) {
+  const { active, config } = isHappyHourActive();
+  if (!active) return null;
+  const price = config.prices[String(itemId)];
+  return price !== undefined ? price : null;
+}
+
 // PostgreSQL connection pool
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -111,11 +189,30 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Place a new order (with optional coupon)
-app.post('/orders', async (req, res) => {
+// Place a new order (with optional coupon) — rate limited
+app.post('/orders', rateLimit, async (req, res) => {
   const { name, location, table, items, couponCode } = req.body;
   if (!name || !location || !table || !items || items.length === 0) {
     return res.status(400).json({ error: 'Missing order info' });
+  }
+
+  // Anti-spam: validate name (2-50 chars, no weird stuff)
+  const trimName = String(name).trim();
+  if (trimName.length < 2 || trimName.length > 50) {
+    return res.status(400).json({ error: 'Name must be 2-50 characters' });
+  }
+
+  // Anti-spam: max items & max quantity
+  if (items.length > MAX_ITEMS_PER_ORDER) {
+    return res.status(400).json({ error: `Maximum ${MAX_ITEMS_PER_ORDER} different items per order` });
+  }
+  for (const item of items) {
+    if (!item.id || !item.quantity || item.quantity < 1) {
+      return res.status(400).json({ error: 'Invalid item in order' });
+    }
+    if (item.quantity > MAX_QTY_PER_ITEM) {
+      return res.status(400).json({ error: `Maximum ${MAX_QTY_PER_ITEM} of each item` });
+    }
   }
 
   let discount = 0;
@@ -260,6 +357,40 @@ app.get('/coupons/validate/:code', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to validate coupon' });
   }
+});
+
+// ==================== HAPPY HOUR PUBLIC ENDPOINT ====================
+app.get('/happy-hour', (req, res) => {
+  const { active, config } = isHappyHourActive();
+  res.json({
+    active,
+    label: config.label,
+    startHour: config.startHour,
+    endHour: config.endHour,
+    prices: active ? config.prices : {},
+  });
+});
+
+// ==================== ADMIN HAPPY HOUR ====================
+app.get('/admin/happy-hour', requireAdmin, (req, res) => {
+  const config = loadHappyHour();
+  const { active } = isHappyHourActive();
+  res.json({ ...config, active });
+});
+
+app.put('/admin/happy-hour', requireAdmin, (req, res) => {
+  const { enabled, startHour, endHour, prices, label } = req.body;
+  const config = loadHappyHour();
+
+  if (typeof enabled === 'boolean') config.enabled = enabled;
+  if (startHour !== undefined) config.startHour = parseInt(startHour);
+  if (endHour !== undefined) config.endHour = parseInt(endHour);
+  if (prices && typeof prices === 'object') config.prices = prices;
+  if (label) config.label = label;
+
+  saveHappyHour(config);
+  const { active } = isHappyHourActive();
+  res.json({ success: true, ...config, active });
 });
 
 // ==================== ADMIN API ROUTES ====================
